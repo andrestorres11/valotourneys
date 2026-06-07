@@ -1,0 +1,102 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 215 28% 9%;
+    --foreground: 210 20% 90%;
+    --card: 215 25% 14%;
+    --card-foreground: 210 20% 90%;
+    --popover: 215 25% 11%;
+    --popover-foreground: 210 20% 90%;
+    --primary: 355 100% 63%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 22% 18%;
+    --secondary-foreground: 210 20% 80%;
+    --muted: 215 22% 16%;
+    --muted-foreground: 215 15% 55%;
+    --accent: 215 22% 20%;
+    --accent-foreground: 210 20% 90%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 20% 20%;
+    --input: 215 20% 16%;
+    --ring: 355 100% 63%;
+    --radius: 0.5rem;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-valo-dark text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0F1923; }
+  ::-webkit-scrollbar-thumb { background: #2A3441; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #FF4655; }
+}
+
+@layer components {
+  /* Card with Valorant style */
+  .valo-card {
+    @apply bg-valo-card border border-valo-border rounded-lg;
+  }
+
+  /* Red accent line on left */
+  .valo-card-accent {
+    @apply valo-card border-l-2 border-l-valo-red;
+  }
+
+  /* Section heading with red line */
+  .section-heading {
+    @apply flex items-center gap-3 text-xl font-bold text-white mb-6;
+  }
+  .section-heading::before {
+    content: '';
+    @apply block w-1 h-6 bg-valo-red rounded-full flex-shrink-0;
+  }
+
+  /* Rank badge */
+  .rank-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold;
+  }
+
+  /* Status badge */
+  .status-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  /* Tournament mode badge */
+  .mode-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-mono uppercase tracking-wider;
+  }
+
+  /* Bracket box */
+  .bracket-match {
+    @apply valo-card p-3 w-52 hover:border-valo-red/50 transition-colors cursor-pointer;
+  }
+  .bracket-team {
+    @apply flex items-center justify-between py-1.5 px-2 rounded text-sm;
+  }
+  .bracket-team.winner {
+    @apply text-valo-gold font-semibold;
+  }
+}
+
+/* Loading animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #1F2731 25%, #2A3441 50%, #1F2731 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
