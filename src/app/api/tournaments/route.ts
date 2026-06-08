@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth, requireAdmin } from '@/lib/auth'
+import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import type { GameMode, Rank, TournamentStatus } from '@prisma/client'
 
@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     include: {
       _count: { select: { registrations: true } },
       phases: { orderBy: { order: 'asc' } },
+      prizes: { orderBy: { position: 'asc' } },
     },
   })
 
@@ -27,25 +28,23 @@ export async function GET(req: NextRequest) {
 // POST - create tournament (admin only)
 export async function POST(req: NextRequest) {
   try {
-    await requireAdmin()
-    const body = await req.json()
     const user = await requireAdmin()
+    const body = await req.json()
 
     const tournament = await prisma.tournament.create({
       data: {
         name:              body.name,
-        description:       body.description,
+        description:       body.description || null,
         gameMode:          body.gameMode as GameMode,
         minRank:           (body.minRank ?? 'UNRANKED') as Rank,
         maxRank:           (body.maxRank ?? 'RADIANT') as Rank,
-        maxTeams:          body.maxTeams ?? 16,
-        teamSize:          body.teamSize ?? 5,
-        prizePool:         body.prizePool,
-        rules:             body.rules,
+        maxTeams:          Number(body.maxTeams) || 16,
+        teamSize:          Number(body.teamSize) || 5,
+        rules:             body.rules || null,
         registrationStart: body.registrationStart ? new Date(body.registrationStart) : null,
         registrationEnd:   body.registrationEnd   ? new Date(body.registrationEnd)   : null,
-        startDate:         body.startDate          ? new Date(body.startDate)          : null,
-        endDate:           body.endDate            ? new Date(body.endDate)            : null,
+        startDate:         body.startDate         ? new Date(body.startDate)          : null,
+        endDate:           body.endDate           ? new Date(body.endDate)            : null,
         status:            'DRAFT',
         createdById:       user.id,
       },
@@ -57,6 +56,6 @@ export async function POST(req: NextRequest) {
     if (error.message === 'Unauthorized') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     if (error.message === 'Forbidden')    return NextResponse.json({ error: 'Solo admins' }, { status: 403 })
     console.error('[POST /tournaments]', error)
-    return NextResponse.json({ error: 'Error interno' }, { status: 500 })
+    return NextResponse.json({ error: error.message ?? 'Error interno' }, { status: 500 })
   }
 }

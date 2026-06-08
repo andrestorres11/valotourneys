@@ -3,6 +3,14 @@ import type { Rank, GameMode, TournamentStatus, PhaseType, MatchStatus, Role, Te
 // ─── RE-EXPORTS ──────────────────────────────────────────────────────────────
 export type { Rank, GameMode, TournamentStatus, PhaseType, MatchStatus, Role, TeamStatus }
 
+// ─── DATE HELPERS ────────────────────────────────────────────────────────────
+export function formatDate(date: Date | string | null | undefined): string {
+  if (!date) return '—'
+  return new Intl.DateTimeFormat('es-CO', {
+    year: 'numeric', month: 'short', day: 'numeric',
+  }).format(new Date(date))
+}
+
 // ─── RANK UTILITIES ──────────────────────────────────────────────────────────
 export const RANK_ORDER: Record<Rank, number> = {
   UNRANKED: 0,

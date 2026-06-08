@@ -1,18 +1,14 @@
-import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
+import { authMiddleware } from '@clerk/nextjs'
 
-const isPublicRoute = createRouteMatcher([
-  '/',
-  '/sign-in(.*)',
-  '/sign-up(.*)',
-  '/tournaments(.*)',        // torneos públicos visibles sin login
-  '/players(.*)',           // perfiles públicos
-  '/api/tournaments(.*)',   // API pública de torneos
-])
-
-export default clerkMiddleware((auth, request) => {
-  if (!isPublicRoute(request)) {
-    auth().protect()
-  }
+export default authMiddleware({
+  publicRoutes: [
+    '/',
+    '/sign-in(.*)',
+    '/sign-up(.*)',
+    '/tournaments(.*)',
+    '/players(.*)',
+    '/api/tournaments(.*)',
+  ],
 })
 
 export const config = {

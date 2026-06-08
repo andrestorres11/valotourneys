@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,8 +6,6 @@ datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
-
-// ─── ENUMS ───────────────────────────────────────────────────────────────────
 
 enum Role {
   PLAYER
@@ -92,7 +89,20 @@ enum InviteStatus {
   EXPIRED
 }
 
-// ─── MODELS ──────────────────────────────────────────────────────────────────
+enum PaymentStatus {
+  PENDING
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+enum PrizeType {
+  CASH
+  TRANSFER
+  GIFT_CARD
+  PRODUCT
+  OTHER
+}
 
 model User {
   id        String   @id @default(cuid())
@@ -103,42 +113,38 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  player    Player?
+  player Player?
 
   @@index([clerkId])
   @@index([email])
 }
 
 model Player {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  riotId      String?  @unique  // gameName#tagLine
-  gameName    String?
-  tagLine     String?
-  currentRank Rank     @default(UNRANKED)
-  peakRank    Rank     @default(UNRANKED)
-  photoUrl    String?
-  bio         String?
-  country     String?
-  
-  // Stats from Henrik API (cached)
-  kills       Int      @default(0)
-  deaths      Int      @default(0)
-  assists     Int      @default(0)
-  wins        Int      @default(0)
-  losses      Int      @default(0)
-  headshotPct Float    @default(0)
+  id            String    @id @default(cuid())
+  userId        String    @unique
+  riotId        String?   @unique
+  gameName      String?
+  tagLine       String?
+  currentRank   Rank      @default(UNRANKED)
+  peakRank      Rank      @default(UNRANKED)
+  photoUrl      String?
+  bio           String?
+  country       String?
+  kills         Int       @default(0)
+  deaths        Int       @default(0)
+  assists       Int       @default(0)
+  wins          Int       @default(0)
+  losses        Int       @default(0)
+  headshotPct   Float     @default(0)
   favoriteAgent String?
-  
-  // Timestamps
-  lastSyncAt  DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  lastSyncAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  teamMembers TeamMember[]
-  sentInvites TeamInvite[]   @relation("InviteSender")
-  receivedInvites TeamInvite[] @relation("InviteReceiver")
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamMembers     TeamMember[]
+  sentInvites     TeamInvite[]   @relation("InviteSender")
+  receivedInvites TeamInvite[]   @relation("InviteReceiver")
   freeAgentProfile FreeAgent?
 
   @@index([riotId])
@@ -197,69 +203,99 @@ model TeamInvite {
 }
 
 model FreeAgent {
-  id          String   @id @default(cuid())
-  playerId    String   @unique
-  roles       String[] // duelist, initiator, controller, sentinel
-  message     String?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  playerId  String   @unique
+  roles     String[]
+  message   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
 }
 
 model Tournament {
-  id             String           @id @default(cuid())
-  name           String
-  description    String?
-  logoUrl        String?
-  bannerUrl      String?
-  gameMode       GameMode
-  status         TournamentStatus @default(DRAFT)
-  
-  // Rank restrictions
-  minRank        Rank             @default(UNRANKED)
-  maxRank        Rank             @default(RADIANT)
-  
-  // Team settings
-  maxTeams       Int              @default(16)
-  teamSize       Int              @default(5)
-  
-  // Dates
+  id                String           @id @default(cuid())
+  name              String
+  description       String?
+  logoUrl           String?
+  bannerUrl         String?
+  gameMode          GameMode
+  status            TournamentStatus @default(DRAFT)
+  minRank           Rank             @default(UNRANKED)
+  maxRank           Rank             @default(RADIANT)
+  maxTeams          Int              @default(16)
+  teamSize          Int              @default(5)
   registrationStart DateTime?
   registrationEnd   DateTime?
   startDate         DateTime?
   endDate           DateTime?
-  
-  // Prize / Info
-  prizePool      String?
-  rules          String?
-  
-  // Meta
-  createdById    String
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
 
-  registrations  TournamentRegistration[]
-  phases         Phase[]
+  // Inscripcion con pago
+  hasPaidEntry      Boolean          @default(false)
+  entryFee          Float?
+  entryCurrency     String?          @default("COP")
+  paymentInstructions String?        // nequi, bancolombia, etc.
+  paymentRecipient  String?          // numero o cuenta destino
+
+  rules             String?
+  createdById       String
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  registrations TournamentRegistration[]
+  phases        Phase[]
+  prizes        TournamentPrize[]
 
   @@index([status])
   @@index([createdById])
 }
 
-model TournamentRegistration {
-  id           String   @id @default(cuid())
+model TournamentPrize {
+  id           String    @id @default(cuid())
   tournamentId String
-  teamId       String
-  checkedIn    Boolean  @default(false)
-  seed         Int?
+  position     Int       // 1 = 1er lugar, 2 = 2do, etc.
+  label        String    // "Campeón", "Subcampeón", etc.
+  prizeType    PrizeType @default(CASH)
+  amount       Float?    // si es dinero
+  currency     String?   @default("COP")
+  description  String?   // descripcion libre del premio
+  winnerId     String?   // teamId que ganó este premio
+  paidAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@index([tournamentId])
+  @@unique([tournamentId, position])
+}
+
+model TournamentRegistration {
+  id              String        @id @default(cuid())
+  tournamentId    String
+  teamId          String
+  checkedIn       Boolean       @default(false)
+  seed            Int?
+
+  // Pago
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentProofUrl String?       // URL cloudinary del comprobante
+  paymentProofId  String?       // public_id cloudinary para borrar
+  paymentNote     String?       // nota del jugador al subir
+  reviewedAt      DateTime?     // cuando admin revisó
+  reviewedBy      String?       // userId del admin que revisó
+  rejectionReason String?       // motivo de rechazo
+
   registeredAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   team       Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@unique([tournamentId, teamId])
   @@index([tournamentId])
+  @@index([paymentStatus])
 }
 
 model Phase {
@@ -283,27 +319,26 @@ model Phase {
 model Group {
   id      String @id @default(cuid())
   phaseId String
-  name    String // "Grupo A", "Grupo B"...
+  name    String
   order   Int
 
-  phase   Phase        @relation(fields: [phaseId], references: [id], onDelete: Cascade)
-  matches Match[]
+  phase     Phase          @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  matches   Match[]
   standings GroupStanding[]
 
   @@index([phaseId])
 }
 
 model GroupStanding {
-  id      String @id @default(cuid())
-  groupId String
-  teamId  String
-  
-  played  Int @default(0)
-  wins    Int @default(0)
-  losses  Int @default(0)
-  roundsWon  Int @default(0)
-  roundsLost Int @default(0)
-  points  Int @default(0)
+  id         String @id @default(cuid())
+  groupId    String
+  teamId     String
+  played     Int    @default(0)
+  wins       Int    @default(0)
+  losses     Int    @default(0)
+  roundsWon  Int    @default(0)
+  roundsLost Int    @default(0)
+  points     Int    @default(0)
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -312,29 +347,23 @@ model GroupStanding {
 }
 
 model Match {
-  id           String      @id @default(cuid())
-  phaseId      String
-  groupId      String?
-  team1Id      String?
-  team2Id      String?
-  winnerId     String?
-  
-  // Scores
-  team1Score   Int         @default(0)
-  team2Score   Int         @default(0)
-  
-  status       MatchStatus @default(SCHEDULED)
-  scheduledAt  DateTime?
-  playedAt     DateTime?
-  
-  // Bracket positioning
-  bracketRound Int?
+  id              String      @id @default(cuid())
+  phaseId         String
+  groupId         String?
+  team1Id         String?
+  team2Id         String?
+  winnerId        String?
+  team1Score      Int         @default(0)
+  team2Score      Int         @default(0)
+  status          MatchStatus @default(SCHEDULED)
+  scheduledAt     DateTime?
+  playedAt        DateTime?
+  bracketRound    Int?
   bracketPosition Int?
-  nextMatchId  String?
-  
-  notes        String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  nextMatchId     String?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   phase Phase  @relation(fields: [phaseId], references: [id], onDelete: Cascade)
   group Group? @relation(fields: [groupId], references: [id])

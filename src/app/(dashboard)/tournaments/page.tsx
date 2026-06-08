@@ -63,7 +63,7 @@ export default async function TournamentsPage() {
                     <span>
                       🎮 {t.teamSize}v{t.teamSize}
                     </span>
-                    {t.prizePool && <span>🏅 {t.prizePool}</span>}
+                    
                   </div>
                 </div>
                 <span className="text-valo-red text-xl group-hover:translate-x-1 transition-transform">→</span>
