@@ -97,11 +97,16 @@ export default async function TournamentDetailPage({ params }: { params: { id: s
           {isOpen && user && (
             <TournamentActions
               tournamentId={tournament.id}
+              teamSize={tournament.teamSize}
               userTeam={userTeam ? { id: userTeam.teamId, name: userTeam.team.name, isCapitan: userTeam.isCapitan } : null}
               alreadyRegistered={alreadyRegistered}
               spotsLeft={spotsLeft}
               minRank={tournament.minRank as Rank}
               maxRank={tournament.maxRank as Rank}
+              userPlayerId={user.player?.id ?? null}
+              userRank={user.player?.currentRank ?? null}
+              userRiotId={user.player?.riotId ?? null}
+              userGameName={user.player?.gameName ?? null}
             />
           )}
         </div>
