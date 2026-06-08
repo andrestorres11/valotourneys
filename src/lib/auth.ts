@@ -1,4 +1,4 @@
-import { auth, currentUser } from '@clerk/nextjs/server'
+import { auth, currentUser } from '@clerk/nextjs'
 import { prisma } from './prisma'
 import type { User, Player } from '@prisma/client'
 
@@ -15,21 +15,14 @@ export async function getCurrentUser(): Promise<(User & { player: Player | null 
     const clerkUser = await currentUser()
     if (!clerkUser) return null
 
-    const email = clerkUser.emailAddresses[0]?.emailAddress ?? ''
-    const username =
-      clerkUser.username ??
-      clerkUser.firstName ??
-      email.split('@')[0] ??
-      `user_${userId.slice(-6)}`
-
-    const isAdmin = email === process.env.ADMIN_EMAIL
+    const email    = clerkUser.emailAddresses[0]?.emailAddress ?? ''
+    const username = clerkUser.username ?? clerkUser.firstName ?? email.split('@')[0] ?? `user_${userId.slice(-6)}`
+    const isAdmin  = email === process.env.ADMIN_EMAIL
 
     user = await prisma.user.create({
       data: {
-        clerkId: userId,
-        email,
-        username,
-        role: isAdmin ? 'ADMIN' : 'PLAYER',
+        clerkId: userId, email, username,
+        role:   isAdmin ? 'ADMIN' : 'PLAYER',
         player: { create: {} },
       },
       include: { player: true },

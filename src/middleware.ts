@@ -1,4 +1,4 @@
-import { authMiddleware } from '@clerk/nextjs/server'
+import { authMiddleware } from '@clerk/nextjs'
 
 export default authMiddleware({
   publicRoutes: [
@@ -7,9 +7,6 @@ export default authMiddleware({
     '/sign-up(.*)',
     '/tournaments(.*)',
     '/players(.*)',
-    '/api/tournaments(.*)',
-  ],
-  ignoredRoutes: [
     '/api/tournaments(.*)',
   ],
 })
