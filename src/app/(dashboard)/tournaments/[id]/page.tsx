@@ -1,361 +1,185 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUser } from '@/lib/auth'
-import { notFound } from 'next/navigation'
-import {
-  RANK_LABELS, GAME_MODE_LABELS, TOURNAMENT_STATUS_LABELS,
-  PHASE_TYPE_LABELS, formatDate
-} from '@/types'
-import type { Rank, GameMode, TournamentStatus, PhaseType, MatchStatus } from '@prisma/client'
-import { TournamentActions } from './TournamentActions'
-import { PaymentUpload } from '@/components/PaymentUpload'
+import { isRankInRange, RANK_LABELS } from '@/types'
+import type { Rank } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
-export default async function TournamentDetailPage({ params }: { params: { id: string } }) {
-  const [tournament, user] = await Promise.all([
-    prisma.tournament.findUnique({
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await requireAuth()
+    if (!user.player) return NextResponse.json({ error: 'Completa tu perfil primero' }, { status: 400 })
+
+    const body = await req.json()
+    const { teamId, partnerIds } = body as { teamId?: string; partnerIds?: string[] }
+
+    const tournament = await prisma.tournament.findUnique({
       where: { id: params.id },
-      include: {
-        _count: { select: { registrations: true } },
-        registrations: {
-          orderBy: { registeredAt: 'asc' },
-          include: {
-            team: {
-              include: {
-                members: {
-                  include: { player: { include: { user: { select: { username: true } } } } },
-                },
-              },
-            },
-          },
-        },
-        phases: {
-          orderBy: { order: 'asc' },
-          include: {
-            groups: {
-              include: {
-                standings: true,
-                matches: true,
-              },
-            },
-            matches: {
-              orderBy: [{ bracketRound: 'asc' }, { bracketPosition: 'asc' }],
-            },
-          },
-        },
-        prizes: { orderBy: { position: 'asc' } },
-      },
-    }),
-    getCurrentUser(),
-  ])
+      include: { _count: { select: { registrations: true } } },
+    })
+    if (!tournament) return NextResponse.json({ error: 'Torneo no encontrado' }, { status: 404 })
+    if (tournament.status !== 'REGISTRATION_OPEN') return NextResponse.json({ error: 'Inscripciones no abiertas' }, { status: 400 })
+    if (tournament._count.registrations >= tournament.maxTeams) return NextResponse.json({ error: 'Torneo lleno' }, { status: 400 })
 
-  if (!tournament) notFound()
+    const minRank = tournament.minRank as Rank
+    const maxRank = tournament.maxRank as Rank
 
-  const spotsLeft = tournament.maxTeams - tournament._count.registrations
-  const isOpen    = tournament.status === 'REGISTRATION_OPEN'
+    // ── SOLO ──────────────────────────────────────────────────────────────────
+    if (tournament.teamSize === 1) {
+      if (!user.player.riotId) return NextResponse.json({ error: 'Vincula tu Riot ID en tu perfil primero' }, { status: 400 })
+      if (!isRankInRange(user.player.currentRank as Rank, minRank, maxRank)) {
+        return NextResponse.json({
+          error: `Tu rango (${RANK_LABELS[user.player.currentRank as Rank]}) no cumple: ${RANK_LABELS[minRank]} – ${RANK_LABELS[maxRank]}`,
+        }, { status: 400 })
+      }
 
-  const userTeam = user?.player
-    ? await prisma.teamMember.findFirst({
-        where: { playerId: user.player.id },
-        include: { team: true },
+      // Check already registered in this tournament
+      const already = await prisma.tournamentRegistration.findFirst({
+        where: { tournamentId: params.id, team: { members: { some: { playerId: user.player.id } } } },
       })
-    : null
+      if (already) return NextResponse.json({ error: 'Ya estás inscrito en este torneo' }, { status: 409 })
 
-  const alreadyRegistered = userTeam
-    ? tournament.registrations.some(r => r.teamId === userTeam.teamId)
-    : false
+      // Use gameName as display name — much cleaner
+      const displayName = user.player.gameName ?? user.username ?? `Jugador_${user.player.id.slice(-4)}`
+      // Make unique by appending random suffix
+      const uniqueName  = `${displayName}_${Math.random().toString(36).slice(2, 7)}`
 
-  const statusColors: Record<TournamentStatus, string> = {
-    DRAFT:                'bg-gray-500/20 text-gray-400',
-    REGISTRATION_OPEN:    'bg-green-500/20 text-green-400',
-    REGISTRATION_CLOSED:  'bg-yellow-500/20 text-yellow-400',
-    IN_PROGRESS:          'bg-blue-500/20 text-blue-400',
-    COMPLETED:            'bg-purple-500/20 text-purple-400',
-    CANCELLED:            'bg-red-500/20 text-red-400',
+      // Create solo team — use internal ID as tag key, display name as name
+      const soloTeam = await prisma.team.create({
+        data: {
+          name:      uniqueName,
+          tag:       'SOLO',
+          captainId: user.player.id,
+          // Don't create member here if player already in another team
+          // We create member separately with skipDuplicates
+        },
+      })
+
+      // Add player as member — ignore if already in this team somehow
+      await prisma.teamMember.upsert({
+        where:  { teamId_playerId: { teamId: soloTeam.id, playerId: user.player.id } },
+        update: {},
+        create: { teamId: soloTeam.id, playerId: user.player.id, isCapitan: true },
+      })
+
+      const reg = await prisma.tournamentRegistration.create({
+        data: { tournamentId: params.id, teamId: soloTeam.id },
+      })
+      return NextResponse.json(reg, { status: 201 })
+    }
+
+    // ── DUO / TRIO ─────────────────────────────────────────────────────────────
+    if (tournament.teamSize >= 2 && tournament.teamSize <= 4) {
+      if (!partnerIds || partnerIds.length !== tournament.teamSize - 1) {
+        return NextResponse.json({ error: `Selecciona ${tournament.teamSize - 1} compañero(s)` }, { status: 400 })
+      }
+
+      const allPlayerIds = [user.player.id, ...partnerIds]
+      const players = await prisma.player.findMany({ where: { id: { in: allPlayerIds } } })
+      if (players.length !== allPlayerIds.length) return NextResponse.json({ error: 'Jugador no encontrado' }, { status: 404 })
+
+      const invalid = players.filter(p => !isRankInRange(p.currentRank as Rank, minRank, maxRank))
+      if (invalid.length > 0) return NextResponse.json({ error: `Fuera de rango: ${invalid.map(p => p.gameName ?? p.id.slice(-4)).join(', ')}` }, { status: 400 })
+
+      for (const pid of allPlayerIds) {
+        const ex = await prisma.tournamentRegistration.findFirst({
+          where: { tournamentId: params.id, team: { members: { some: { playerId: pid } } } },
+        })
+        if (ex) {
+          const p = players.find(pl => pl.id === pid)
+          return NextResponse.json({ error: `${p?.gameName ?? 'Un jugador'} ya está inscrito` }, { status: 409 })
+        }
+      }
+
+      const tag       = tournament.teamSize === 2 ? 'DUO' : 'TRIO'
+      const groupName = `${tag}_${user.player.gameName ?? user.player.id.slice(-4)}_${Math.random().toString(36).slice(2, 6)}`
+      const groupTeam = await prisma.team.create({
+        data: {
+          name:      groupName,
+          tag,
+          captainId: user.player.id,
+          members:   { create: allPlayerIds.map((pid, i) => ({ playerId: pid, isCapitan: i === 0 })) },
+        },
+      })
+
+      const reg = await prisma.tournamentRegistration.create({
+        data: { tournamentId: params.id, teamId: groupTeam.id },
+      })
+      return NextResponse.json(reg, { status: 201 })
+    }
+
+    // ── FULL TEAM ──────────────────────────────────────────────────────────────
+    if (!teamId) return NextResponse.json({ error: 'Selecciona un equipo' }, { status: 400 })
+
+    const team = await prisma.team.findUnique({
+      where: { id: teamId },
+      include: { members: { include: { player: true } } },
+    })
+    if (!team) return NextResponse.json({ error: 'Equipo no encontrado' }, { status: 404 })
+
+    const isCaptain = team.members.some(m => m.isCapitan && m.player.userId === user.id)
+    if (!isCaptain) return NextResponse.json({ error: 'Solo el capitán puede inscribir el equipo' }, { status: 403 })
+    if (team.members.length < tournament.teamSize) {
+      return NextResponse.json({ error: `El equipo necesita ${tournament.teamSize} jugadores (tiene ${team.members.length})` }, { status: 400 })
+    }
+
+    const bad = team.members.filter(m => !m.player.riotId || !isRankInRange(m.player.currentRank as Rank, minRank, maxRank))
+    if (bad.length > 0) return NextResponse.json({ error: `Fuera de rango o sin Riot ID: ${bad.map(m => m.player.gameName ?? '?').join(', ')}` }, { status: 400 })
+
+    const exists = await prisma.tournamentRegistration.findUnique({
+      where: { tournamentId_teamId: { tournamentId: params.id, teamId } },
+    })
+    if (exists) return NextResponse.json({ error: 'El equipo ya está inscrito' }, { status: 409 })
+
+    const reg = await prisma.tournamentRegistration.create({
+      data: { tournamentId: params.id, teamId },
+    })
+    return NextResponse.json(reg, { status: 201 })
+
+  } catch (err: unknown) {
+    const error = err as Error & { code?: string }
+    if (error.message === 'Unauthorized') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    if (error.code === 'P2002') return NextResponse.json({ error: 'Conflicto: ya existe un registro. Recarga e intenta de nuevo.' }, { status: 409 })
+    console.error('[register]', error.code, error.message)
+    return NextResponse.json({ error: error.message ?? 'Error desconocido' }, { status: 500 })
   }
+}
 
-  return (
-    <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="valo-card p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2 flex-wrap">
-              <span className={`status-badge ${statusColors[tournament.status as TournamentStatus]}`}>
-                {TOURNAMENT_STATUS_LABELS[tournament.status as TournamentStatus]}
-              </span>
-              <span className="mode-badge bg-valo-border text-valo-text">
-                {GAME_MODE_LABELS[tournament.gameMode as GameMode]}
-              </span>
-            </div>
-            <h1 className="text-3xl font-black text-white mb-2">{tournament.name}</h1>
-            {tournament.description && (
-              <p className="text-valo-text">{tournament.description}</p>
-            )}
-          </div>
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const user = await requireAuth()
+    const body = await req.json().catch(() => ({}))
+    const { teamId } = body
+    if (!teamId) return NextResponse.json({ error: 'teamId requerido' }, { status: 400 })
 
-          {isOpen && user && (
-            <TournamentActions
-              tournamentId={tournament.id}
-              teamSize={tournament.teamSize}
-              userTeam={userTeam ? { id: userTeam.teamId, name: userTeam.team.name, isCapitan: userTeam.isCapitan } : null}
-              alreadyRegistered={alreadyRegistered}
-              spotsLeft={spotsLeft}
-              minRank={tournament.minRank as Rank}
-              maxRank={tournament.maxRank as Rank}
-              userPlayerId={user.player?.id ?? null}
-              userRank={user.player?.currentRank ?? null}
-              userRiotId={user.player?.riotId ?? null}
-              userGameName={user.player?.gameName ?? null}
-            />
-          )}
-        </div>
+    const tournament = await prisma.tournament.findUnique({ where: { id: params.id } })
+    if (!tournament) return NextResponse.json({ error: 'Torneo no encontrado' }, { status: 404 })
+    if (tournament.status !== 'REGISTRATION_OPEN') return NextResponse.json({ error: 'No se puede retirar ahora' }, { status: 400 })
 
-        {/* Info grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-6 pt-6 border-t border-valo-border">
-          {[
-            { label: 'Equipos',         value: `${tournament._count.registrations}/${tournament.maxTeams}` },
-            { label: 'Formato',         value: `${tournament.teamSize}v${tournament.teamSize}` },
-            { label: 'Rango permitido', value: `${RANK_LABELS[tournament.minRank as Rank]?.split(' ')[0]} – ${RANK_LABELS[tournament.maxRank as Rank]}` },
-          ].map(s => (
-            <div key={s.label}>
-              <p className="text-valo-text text-xs uppercase tracking-wider mb-1">{s.label}</p>
-              <p className="text-white font-semibold text-sm">{s.value}</p>
-            </div>
-          ))}
-        </div>
+    const team   = await prisma.team.findUnique({ where: { id: teamId } })
+    const isTemp = team && ['SOLO', 'DUO', 'TRIO'].includes(team.tag)
 
-        {/* Entry fee badge */}
-        {tournament.hasPaidEntry && tournament.entryFee && (
-          <div className="mt-4 pt-4 border-t border-valo-border">
-            <span className="inline-flex items-center gap-2 bg-valo-gold/10 border border-valo-gold/30 text-valo-gold text-sm px-3 py-1.5 rounded">
-              💳 Inscripción con pago:{' '}
-              {new Intl.NumberFormat('es-CO', {
-                style: 'currency',
-                currency: tournament.entryCurrency ?? 'COP',
-                maximumFractionDigits: 0,
-              }).format(tournament.entryFee)}
-            </span>
-          </div>
-        )}
+    await prisma.tournamentRegistration.delete({
+      where: { tournamentId_teamId: { tournamentId: params.id, teamId } },
+    })
 
-        {/* Dates */}
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-valo-border">
-          {[
-            { label: 'Inicio inscripciones', value: formatDate(tournament.registrationStart) },
-            { label: 'Fin inscripciones',    value: formatDate(tournament.registrationEnd) },
-            { label: 'Inicio del torneo',    value: formatDate(tournament.startDate) },
-          ].map(s => (
-            <div key={s.label}>
-              <p className="text-valo-text text-xs uppercase tracking-wider mb-1">{s.label}</p>
-              <p className="text-white text-sm">{s.value}</p>
-            </div>
-          ))}
-        </div>
-      </div>
+    if (isTemp) {
+      await prisma.teamMember.deleteMany({ where: { teamId } })
+      await prisma.team.delete({ where: { id: teamId } }).catch(() => {})
+    }
 
-      {/* Prizes */}
-      {tournament.prizes.length > 0 && (
-        <div className="valo-card p-5">
-          <h2 className="text-white font-bold mb-4">🏅 Premios</h2>
-          <div className="grid gap-3">
-            {tournament.prizes.map(prize => (
-              <div key={prize.id} className="flex items-center justify-between py-2 border-b border-valo-border/50 last:border-0">
-                <div>
-                  <span className="text-white font-semibold">{prize.label}</span>
-                  {prize.description && (
-                    <p className="text-valo-text text-xs mt-0.5">{prize.description}</p>
-                  )}
-                </div>
-                <div className="text-right">
-                  {prize.amount ? (
-                    <span className="text-valo-gold font-bold">
-                      {new Intl.NumberFormat('es-CO', {
-                        style: 'currency',
-                        currency: prize.currency ?? 'COP',
-                        maximumFractionDigits: 0,
-                      }).format(prize.amount)}
-                    </span>
-                  ) : (
-                    <span className="text-valo-text text-sm">{prize.prizeType}</span>
-                  )}
-                  {prize.winnerId && (
-                    <p className="text-green-400 text-xs mt-0.5">
-                      🏆 {tournament.registrations.find(r => r.teamId === prize.winnerId)?.team.name ?? 'Asignado'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Payment upload for registered captain */}
-      {userTeam && alreadyRegistered && tournament.hasPaidEntry && (() => {
-        const myReg = tournament.registrations.find(r => r.teamId === userTeam.teamId)
-        if (!myReg) return null
-        return (
-          <PaymentUpload
-            tournamentId={tournament.id}
-            paymentStatus={myReg.paymentStatus as any}
-            paymentProofUrl={myReg.paymentProofUrl}
-            rejectionReason={myReg.rejectionReason}
-            entryFee={tournament.entryFee}
-            currency={tournament.entryCurrency}
-            paymentInstructions={tournament.paymentInstructions}
-            paymentRecipient={tournament.paymentRecipient}
-            teamName={userTeam.team.name}
-          />
-        )
-      })()}
-
-      {/* Registered teams */}
-      <div>
-        <h2 className="section-heading">Equipos inscritos ({tournament._count.registrations})</h2>
-        {tournament.registrations.length === 0 ? (
-          <div className="valo-card p-8 text-center text-valo-text">
-            Aún no hay equipos inscritos. ¡Sé el primero!
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {tournament.registrations.map(reg => (
-              <div key={reg.id} className="valo-card p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-white font-bold">{reg.team.name}</span>
-                    <span className="text-xs font-mono bg-valo-border text-valo-text px-1.5 py-0.5 rounded">
-                      [{reg.team.tag}]
-                    </span>
-                    {tournament.hasPaidEntry && (
-                      <span className={`text-xs px-2 py-0.5 rounded border ${
-                        reg.paymentStatus === 'APPROVED'  ? 'text-green-400 border-green-500/30 bg-green-500/10' :
-                        reg.paymentStatus === 'SUBMITTED' ? 'text-blue-400 border-blue-500/30 bg-blue-500/10' :
-                        reg.paymentStatus === 'REJECTED'  ? 'text-red-400 border-red-500/30 bg-red-500/10' :
-                        'text-yellow-400 border-yellow-500/30 bg-yellow-500/10'
-                      }`}>
-                        {reg.paymentStatus === 'APPROVED'  ? '✅ Pago aprobado' :
-                         reg.paymentStatus === 'SUBMITTED' ? '📤 En revisión' :
-                         reg.paymentStatus === 'REJECTED'  ? '❌ Rechazado' :
-                         '⏳ Pago pendiente'}
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-valo-text text-xs">{reg.team.members.length} jugadores</span>
-                </div>
-                <div className="flex gap-2 flex-wrap">
-                  {reg.team.members.map(m => (
-                    <span key={m.id} className={`text-xs px-2 py-0.5 rounded ${
-                      m.isCapitan ? 'text-valo-gold bg-valo-gold/10' : 'text-valo-text bg-valo-darker'
-                    }`}>
-                      {m.isCapitan ? '👑 ' : ''}{m.player.gameName ?? m.player.user.username}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Phases & Brackets */}
-      {tournament.phases.length > 0 && (
-        <div>
-          <h2 className="section-heading">Fases del torneo</h2>
-          <div className="space-y-6">
-            {tournament.phases.map(phase => (
-              <div key={phase.id} className="valo-card p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <h3 className="text-white font-bold">{phase.name}</h3>
-                  <span className="text-xs px-2 py-0.5 bg-valo-border text-valo-text rounded">
-                    {PHASE_TYPE_LABELS[phase.type as PhaseType]}
-                  </span>
-                  {phase.isCompleted && (
-                    <span className="text-xs px-2 py-0.5 bg-green-500/20 text-green-400 rounded">Completada</span>
-                  )}
-                </div>
-
-                {phase.type === 'GROUP_STAGE' && phase.groups.map(group => (
-                  <div key={group.id} className="mb-4">
-                    <h4 className="text-valo-text text-sm font-semibold mb-2">{group.name}</h4>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-valo-text text-xs uppercase">
-                            <th className="text-left py-1 pr-4">Equipo</th>
-                            <th className="text-center px-2">PJ</th>
-                            <th className="text-center px-2">G</th>
-                            <th className="text-center px-2">P</th>
-                            <th className="text-center px-2">Pts</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {group.standings
-                            .sort((a, b) => b.points - a.points)
-                            .map((s, idx) => {
-                              const team = tournament.registrations.find(r => r.teamId === s.teamId)?.team
-                              return (
-                                <tr key={s.id} className={`border-t border-valo-border/50 ${idx < 2 ? 'text-white' : 'text-valo-text'}`}>
-                                  <td className="py-1.5 pr-4 font-medium">{team?.name ?? '—'}</td>
-                                  <td className="text-center px-2">{s.played}</td>
-                                  <td className="text-center px-2 text-green-400">{s.wins}</td>
-                                  <td className="text-center px-2 text-red-400">{s.losses}</td>
-                                  <td className="text-center px-2 font-bold">{s.points}</td>
-                                </tr>
-                              )
-                            })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ))}
-
-                {phase.type !== 'GROUP_STAGE' && phase.matches.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <div className="flex gap-6 min-w-max">
-                      {Array.from(new Set(phase.matches.map(m => m.bracketRound))).sort((a,b) => (a??0)-(b??0)).map(round => (
-                        <div key={round} className="flex flex-col gap-4">
-                          <p className="text-valo-text text-xs uppercase tracking-wider mb-2">Ronda {round}</p>
-                          {phase.matches
-                            .filter(m => m.bracketRound === round)
-                            .sort((a, b) => (a.bracketPosition ?? 0) - (b.bracketPosition ?? 0))
-                            .map(match => {
-                              const t1 = tournament.registrations.find(r => r.teamId === match.team1Id)?.team
-                              const t2 = tournament.registrations.find(r => r.teamId === match.team2Id)?.team
-                              return (
-                                <div key={match.id} className="bracket-match">
-                                  <div className={`bracket-team ${match.winnerId === match.team1Id ? 'winner' : 'text-valo-text'}`}>
-                                    <span>{t1?.name ?? 'TBD'}</span>
-                                    {match.status === 'COMPLETED' && <span className="font-mono">{match.team1Score}</span>}
-                                  </div>
-                                  <div className="border-t border-valo-border/40 my-1" />
-                                  <div className={`bracket-team ${match.winnerId === match.team2Id ? 'winner' : 'text-valo-text'}`}>
-                                    <span>{t2?.name ?? 'TBD'}</span>
-                                    {match.status === 'COMPLETED' && <span className="font-mono">{match.team2Score}</span>}
-                                  </div>
-                                </div>
-                              )
-                            })}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Rules */}
-      {tournament.rules && (
-        <div className="valo-card p-5">
-          <h2 className="text-white font-bold mb-3">📋 Reglamento</h2>
-          <pre className="text-valo-text text-sm whitespace-pre-wrap font-sans leading-relaxed">
-            {tournament.rules}
-          </pre>
-        </div>
-      )}
-    </div>
-  )
+    return NextResponse.json({ success: true })
+  } catch (err: unknown) {
+    const error = err as Error
+    if (error.message === 'Unauthorized') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    console.error('[unregister]', error.message)
+    return NextResponse.json({ error: error.message ?? 'Error desconocido' }, { status: 500 })
+  }
 }
