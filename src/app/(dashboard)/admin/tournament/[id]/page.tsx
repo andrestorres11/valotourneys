@@ -7,6 +7,7 @@ import { AdminPaymentsPanel } from '@/components/AdminPaymentsPanel'
 import { AdminPrizesManager } from '@/components/AdminPrizesManager'
 import { AdminPaymentConfig } from './AdminPaymentConfig'
 import { AdminKickRegistration } from '@/components/AdminKickRegistration'
+import { AdminStreamConfig } from '@/components/AdminStreamConfig'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
@@ -31,6 +32,14 @@ export default async function AdminTournamentDetailPage({ params }: { params: { 
         orderBy: { registeredAt: 'asc' },
       },
       prizes: { orderBy: { position: 'asc' } },
+      phases: {
+        include: {
+          matches: {
+            orderBy: [{ bracketRound: 'asc' }, { bracketPosition: 'asc' }],
+          },
+          groups: { include: { matches: { orderBy: [{ bracketRound: 'asc' }] } } },
+        },
+      },
     },
   })
   if (!tournament) notFound()
@@ -154,6 +163,33 @@ export default async function AdminTournamentDetailPage({ params }: { params: { 
             />
           </section>
         )}
+
+        {/* 4. Stream config */}
+        {(tournament.status === 'IN_PROGRESS' || tournament.status === 'REGISTRATION_CLOSED') && (() => {
+          const allMatches = tournament.phases.flatMap(p => [
+            ...p.matches,
+            ...p.groups.flatMap((g: any) => g.matches),
+          ])
+          const teamMap = Object.fromEntries(tournament.registrations.map((r: any) => [r.team.id, r.team]))
+          return (
+            <section>
+              <h2 className="section-heading text-lg">📺 Streams y horarios</h2>
+              <AdminStreamConfig
+                tournamentId={tournament.id}
+                tournamentStreamUrl={tournament.streamUrl ?? null}
+                matches={allMatches.map((m: any) => ({
+                  id: m.id,
+                  team1Name: teamMap[m.team1Id]?.name ?? 'TBD',
+                  team2Name: teamMap[m.team2Id]?.name ?? 'TBD',
+                  bracketRound: m.bracketRound,
+                  scheduledAt: m.scheduledAt?.toISOString() ?? null,
+                  streamUrl: m.streamUrl ?? null,
+                  status: m.status,
+                }))}
+              />
+            </section>
+          )
+        })()}
 
         {/* 4. Prizes */}
         <section>

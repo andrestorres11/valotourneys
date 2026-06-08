@@ -19,12 +19,14 @@ export async function LiveEvents() {
             where: { status: { in: ['IN_PROGRESS', 'SCHEDULED'] } },
             orderBy: [{ bracketRound: 'asc' }, { bracketPosition: 'asc' }],
             take: 6,
+            select: { id: true, team1Id: true, team2Id: true, team1Score: true, team2Score: true, status: true, winnerId: true, scheduledAt: true, streamUrl: true },
           },
           groups: {
             include: {
               matches: {
                 where: { status: { in: ['IN_PROGRESS', 'SCHEDULED'] } },
                 take: 4,
+                select: { id: true, team1Id: true, team2Id: true, team1Score: true, team2Score: true, status: true, winnerId: true, scheduledAt: true, streamUrl: true },
               },
             },
           },
@@ -85,9 +87,21 @@ export async function LiveEvents() {
                   {GAME_MODE_LABELS[tournament.gameMode as GameMode]}
                 </span>
               </div>
-              {phase && (
-                <span className="text-valo-text text-xs">{phase.name}</span>
-              )}
+              <div className="flex items-center gap-3">
+                {phase && (
+                  <span className="text-valo-text text-xs">{phase.name}</span>
+                )}
+                {(tournament as any).streamUrl && (
+                  <a
+                    href={(tournament as any).streamUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs bg-valo-red text-white px-2.5 py-1 rounded font-semibold hover:bg-valo-red/90 transition-all flex items-center gap-1"
+                  >
+                    📺 Ver stream
+                  </a>
+                )}
+              </div>
             </div>
 
             {/* Matches */}
@@ -156,12 +170,21 @@ export async function LiveEvents() {
                         ) : 'TBD'}
                       </div>
 
-                      {/* Winner badge */}
-                      {isDone && match.winnerId && (
-                        <div className="shrink-0 w-16 text-right">
+                      {/* Stream / Winner */}
+                      <div className="shrink-0 w-20 text-right">
+                        {(match as any).streamUrl && !isDone ? (
+                          <a
+                            href={(match as any).streamUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs bg-valo-red/20 text-valo-red border border-valo-red/30 px-2 py-0.5 rounded hover:bg-valo-red/30 transition-all"
+                          >
+                            📺 Ver
+                          </a>
+                        ) : isDone && match.winnerId ? (
                           <span className="text-xs text-valo-gold">🏆</span>
-                        </div>
-                      )}
+                        ) : null}
+                      </div>
                     </div>
                   )
                 })

@@ -239,6 +239,7 @@ model Tournament {
   paymentRecipient  String?          // numero o cuenta destino
 
   rules             String?
+  streamUrl         String?
   createdById       String
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
@@ -362,6 +363,7 @@ model Match {
   bracketPosition Int?
   nextMatchId     String?
   notes           String?
+  streamUrl       String?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
