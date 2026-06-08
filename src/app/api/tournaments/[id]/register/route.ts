@@ -32,39 +32,41 @@ export async function POST(
     if (tournament.teamSize === 1) {
       if (!user.player.riotId) return NextResponse.json({ error: 'Vincula tu Riot ID en tu perfil primero' }, { status: 400 })
       if (!isRankInRange(user.player.currentRank as Rank, minRank, maxRank)) {
-        return NextResponse.json({ error: `Tu rango (${RANK_LABELS[user.player.currentRank as Rank]}) no cumple: ${RANK_LABELS[minRank]} – ${RANK_LABELS[maxRank]}` }, { status: 400 })
+        return NextResponse.json({
+          error: `Tu rango (${RANK_LABELS[user.player.currentRank as Rank]}) no cumple: ${RANK_LABELS[minRank]} – ${RANK_LABELS[maxRank]}`,
+        }, { status: 400 })
       }
 
-      // Check already registered
+      // Check already registered in this tournament
       const already = await prisma.tournamentRegistration.findFirst({
         where: { tournamentId: params.id, team: { members: { some: { playerId: user.player.id } } } },
       })
       if (already) return NextResponse.json({ error: 'Ya estás inscrito en este torneo' }, { status: 409 })
 
-      // Use player.id + tournament.id slice as unique name — guaranteed unique
-      const soloName  = `solo_${user.player.id.slice(-8)}_${params.id.slice(-8)}`
+      // Find or clean up existing solo team for this specific tournament slot
+      const soloName = `solo_${user.player.id.slice(-8)}_${params.id.slice(-8)}`
 
-      // Upsert to avoid duplicate issues
-      const soloTeam = await prisma.team.upsert({
-        where:  { name: soloName },
-        update: {},
-        create: {
+      // Delete any orphan solo team with this name (no active registration)
+      const orphan = await prisma.team.findUnique({ where: { name: soloName } })
+      if (orphan) {
+        // Check if it has an active registration anywhere
+        const hasReg = await prisma.tournamentRegistration.findFirst({ where: { teamId: orphan.id } })
+        if (!hasReg) {
+          // Safe to delete orphan
+          await prisma.teamMember.deleteMany({ where: { teamId: orphan.id } })
+          await prisma.team.delete({ where: { id: orphan.id } }).catch(() => {})
+        }
+      }
+
+      // Create fresh solo team
+      const soloTeam = await prisma.team.create({
+        data: {
           name:      soloName,
           tag:       'SOLO',
           captainId: user.player.id,
           members:   { create: { playerId: user.player.id, isCapitan: true } },
         },
       })
-
-      // Check member exists (in case team existed but member was deleted)
-      const memberExists = await prisma.teamMember.findUnique({
-        where: { teamId_playerId: { teamId: soloTeam.id, playerId: user.player.id } },
-      })
-      if (!memberExists) {
-        await prisma.teamMember.create({
-          data: { teamId: soloTeam.id, playerId: user.player.id, isCapitan: true },
-        })
-      }
 
       const reg = await prisma.tournamentRegistration.create({
         data: { tournamentId: params.id, teamId: soloTeam.id },
@@ -143,10 +145,9 @@ export async function POST(
   } catch (err: unknown) {
     const error = err as Error & { code?: string }
     if (error.message === 'Unauthorized') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    // Prisma unique constraint
-    if (error.code === 'P2002') return NextResponse.json({ error: 'Ya existe un registro duplicado. Recarga la página e intenta de nuevo.' }, { status: 409 })
+    if (error.code === 'P2002') return NextResponse.json({ error: 'Conflicto de registro. Recarga la página e intenta de nuevo.' }, { status: 409 })
     console.error('[register]', error.code, error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message ?? 'Error desconocido' }, { status: 500 })
   }
 }
 
@@ -158,7 +159,6 @@ export async function DELETE(
     const user = await requireAuth()
     const body = await req.json().catch(() => ({}))
     const { teamId } = body
-
     if (!teamId) return NextResponse.json({ error: 'teamId requerido' }, { status: 400 })
 
     const tournament = await prisma.tournament.findUnique({ where: { id: params.id } })
@@ -168,10 +168,12 @@ export async function DELETE(
     const team   = await prisma.team.findUnique({ where: { id: teamId } })
     const isTemp = team && ['SOLO', 'DUO', 'TRIO'].includes(team.tag)
 
+    // Delete registration first (FK constraint)
     await prisma.tournamentRegistration.delete({
       where: { tournamentId_teamId: { tournamentId: params.id, teamId } },
     })
 
+    // Then clean up temp team
     if (isTemp) {
       await prisma.teamMember.deleteMany({ where: { teamId } })
       await prisma.team.delete({ where: { id: teamId } }).catch(() => {})
@@ -182,6 +184,6 @@ export async function DELETE(
     const error = err as Error
     if (error.message === 'Unauthorized') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     console.error('[unregister]', error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: error.message ?? 'Error desconocido' }, { status: 500 })
   }
 }
