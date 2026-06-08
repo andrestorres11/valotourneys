@@ -13,13 +13,18 @@ const NAV_ITEMS = [
   { href: '/alioth',      label: 'Alioth IA',   icon: '🤖' },
 ]
 
+const ADMIN_ITEMS = [
+  { href: '/admin',          label: 'Panel Admin', icon: '⚙️' },
+  { href: '/admin/players',  label: 'Jugadores',   icon: '👥' },
+  { href: '/admin/teams',    label: 'Equipos',     icon: '🛡️' },
+]
+
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const user = await getCurrentUser()
+  const user    = await getCurrentUser()
   const isAdmin = user?.role === 'ADMIN'
 
   return (
     <div className="min-h-screen bg-valo-darker flex">
-      {/* SIDEBAR */}
       <aside className="w-60 bg-valo-dark border-r border-valo-border flex flex-col fixed h-full z-10">
         <div className="px-6 py-5 border-b border-valo-border">
           <Link href="/" className="flex items-center gap-1">
@@ -30,11 +35,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="flex items-center gap-3 px-3 py-2.5 rounded text-valo-text hover:text-white hover:bg-valo-card transition-all text-sm"
-            >
+            <Link key={item.href} href={item.href}
+              className="flex items-center gap-3 px-3 py-2.5 rounded text-valo-text hover:text-white hover:bg-valo-card transition-all text-sm">
               <span className="text-base w-5">{item.icon}</span>
               {item.label}
             </Link>
@@ -45,14 +47,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
               <div className="px-3 pt-4 pb-1">
                 <p className="text-xs uppercase tracking-widest" style={{color:'rgba(172,179,188,0.4)'}}>Admin</p>
               </div>
-              <Link
-                href="/admin"
-                className="flex items-center gap-3 px-3 py-2.5 rounded transition-all text-sm"
-                style={{color:'rgba(255,70,85,0.8)'}}
-              >
-                <span className="text-base w-5">⚙️</span>
-                Panel Admin
-              </Link>
+              {ADMIN_ITEMS.map(item => (
+                <Link key={item.href} href={item.href}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded transition-all text-sm hover:bg-valo-card"
+                  style={{color:'rgba(255,70,85,0.75)'}}>
+                  <span className="text-base w-5">{item.icon}</span>
+                  {item.label}
+                </Link>
+              ))}
             </>
           )}
         </nav>
