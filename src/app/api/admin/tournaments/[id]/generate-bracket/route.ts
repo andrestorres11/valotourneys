@@ -4,8 +4,6 @@ import { prisma } from '@/lib/prisma'
 import { generateGroupName, distributeIntoGroups } from '@/lib/utils'
 import type { PhaseType } from '@prisma/client'
 
-// POST /api/admin/tournaments/[id]/generate-bracket
-// Generates groups or bracket structure from registered teams
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -33,34 +31,47 @@ export async function POST(
       const numGroups = groupCount ?? Math.ceil(teams.length / 4)
       const grouped   = distributeIntoGroups(teams, numGroups)
 
+      // Create phase first, then groups separately to avoid deep nesting type issues
       const phase = await prisma.phase.create({
         data: {
           tournamentId: params.id,
-          type: 'GROUP_STAGE',
-          name: 'Fase de grupos',
-          order: phaseOrder,
-          groups: {
-            create: grouped.map((groupTeams, idx) => ({
-              name:  generateGroupName(idx),
-              order: idx,
-              standings: {
-                create: groupTeams.map(team => ({ teamId: team.id })),
-              },
-              matches: {
-                create: buildRoundRobin(groupTeams.map(t => t.id)),
-              },
-            })),
-          },
+          type:         'GROUP_STAGE',
+          name:         'Fase de grupos',
+          order:        phaseOrder,
         },
+      })
+
+      for (let idx = 0; idx < grouped.length; idx++) {
+        const groupTeams = grouped[idx]
+        const group = await prisma.group.create({
+          data: {
+            phaseId: phase.id,
+            name:    generateGroupName(idx),
+            order:   idx,
+          },
+        })
+
+        // Create standings
+        await prisma.groupStanding.createMany({
+          data: groupTeams.map(t => ({ groupId: group.id, teamId: t.id })),
+        })
+
+        // Create round-robin matches
+        const matchData = buildRoundRobin(groupTeams.map(t => t.id), group.id, phase.id)
+        await prisma.match.createMany({ data: matchData })
+      }
+
+      const fullPhase = await prisma.phase.findUnique({
+        where: { id: phase.id },
         include: { groups: { include: { matches: true, standings: true } } },
       })
 
-      return NextResponse.json(phase, { status: 201 })
+      return NextResponse.json(fullPhase, { status: 201 })
     }
 
     // Elimination bracket
-    const roundCount = Math.ceil(Math.log2(teams.length))
-    const matches = buildEliminationMatches(teams.map(t => t.id), roundCount)
+    const rounds    = Math.ceil(Math.log2(teams.length))
+    const matchData = buildEliminationMatches(teams.map(t => t.id), rounds, params.id)
 
     const phase = await prisma.phase.create({
       data: {
@@ -68,12 +79,19 @@ export async function POST(
         type,
         name:  getPhaseLabel(type, teams.length),
         order: phaseOrder,
-        matches: { create: matches },
       },
+    })
+
+    await prisma.match.createMany({
+      data: matchData.map(m => ({ ...m, phaseId: phase.id })),
+    })
+
+    const fullPhase = await prisma.phase.findUnique({
+      where: { id: phase.id },
       include: { matches: true },
     })
 
-    return NextResponse.json(phase, { status: 201 })
+    return NextResponse.json(fullPhase, { status: 201 })
   } catch (err: unknown) {
     const error = err as Error
     if (error.message === 'Forbidden') return NextResponse.json({ error: 'Solo admins' }, { status: 403 })
@@ -82,20 +100,33 @@ export async function POST(
   }
 }
 
-function buildRoundRobin(teamIds: string[]) {
+function buildRoundRobin(teamIds: string[], groupId: string, phaseId: string) {
   const matches = []
+  let pos = 0
   for (let i = 0; i < teamIds.length; i++) {
     for (let j = i + 1; j < teamIds.length; j++) {
-      matches.push({ team1Id: teamIds[i], team2Id: teamIds[j], bracketRound: 1, bracketPosition: matches.length })
+      matches.push({
+        phaseId,
+        groupId,
+        team1Id:         teamIds[i],
+        team2Id:         teamIds[j],
+        bracketRound:    1,
+        bracketPosition: pos++,
+      })
     }
   }
   return matches
 }
 
-function buildEliminationMatches(teamIds: string[], rounds: number) {
-  const matches = []
+function buildEliminationMatches(teamIds: string[], rounds: number, _tournamentId: string) {
+  const matches: Array<{
+    team1Id: string | null
+    team2Id: string | null
+    bracketRound: number
+    bracketPosition: number
+  }> = []
+
   let pos = 0
-  // First round seeds real teams; later rounds are TBD (null teams)
   for (let i = 0; i < teamIds.length; i += 2) {
     matches.push({
       team1Id:         teamIds[i]     ?? null,
@@ -104,23 +135,24 @@ function buildEliminationMatches(teamIds: string[], rounds: number) {
       bracketPosition: pos++,
     })
   }
-  // Remaining rounds are empty (filled as teams advance)
+
   for (let r = 2; r <= rounds; r++) {
-    const matchCount = Math.pow(2, rounds - r)
-    for (let p = 0; p < matchCount; p++) {
+    const count = Math.pow(2, rounds - r)
+    for (let p = 0; p < count; p++) {
       matches.push({ team1Id: null, team2Id: null, bracketRound: r, bracketPosition: p })
     }
   }
+
   return matches
 }
 
 function getPhaseLabel(type: PhaseType, teamCount: number): string {
   const map: Partial<Record<PhaseType, string>> = {
-    ROUND_OF_16: 'Octavos de final',
+    ROUND_OF_16:   'Octavos de final',
     QUARTERFINALS: 'Cuartos de final',
-    SEMIFINALS: 'Semifinales',
-    FINALS: 'Final',
-    GRAND_FINALS: 'Gran Final',
+    SEMIFINALS:    'Semifinales',
+    FINALS:        'Final',
+    GRAND_FINALS:  'Gran Final',
   }
   return map[type] ?? `Eliminación (${teamCount} equipos)`
 }
