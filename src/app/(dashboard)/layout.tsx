@@ -53,14 +53,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
                 <span className="text-base w-5">⚙️</span>
                 Panel Admin
               </Link>
-              <Link
-                  href="/admin/players"
-                  className="flex items-center gap-3 px-3 py-2.5 rounded transition-all text-sm"
-                  style={{color:'rgba(255,70,85,0.6)'}}
-                >
-                  <span className="text-base w-5">👥</span>
-                  Jugadores
-              </Link>
             </>
           )}
         </nav>

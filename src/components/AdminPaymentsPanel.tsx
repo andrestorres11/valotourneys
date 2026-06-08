@@ -20,6 +20,7 @@ type Props = {
   registrations: Registration[]
   entryFee: number | null
   currency: string | null
+  onKick?: (regId: string) => void
 }
 
 const STATUS_LABELS: Record<PaymentStatus, string> = {
