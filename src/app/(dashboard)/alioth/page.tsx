@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 
+export const dynamic = 'force-dynamic'
+
 type Message = { role: 'user' | 'assistant'; content: string }
 
 export default function AliothPage() {

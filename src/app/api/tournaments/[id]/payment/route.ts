@@ -5,6 +5,8 @@ import { requireAuth } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { uploadToCloudinary, deleteFromCloudinary } from '@/lib/cloudinary'
 
+export const dynamic = 'force-dynamic'
+
 const MAX_SIZE_MB = 5
 
 export async function POST(

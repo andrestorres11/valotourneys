@@ -3,6 +3,8 @@ import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import type { GameMode, Rank, TournamentStatus } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 // GET - list tournaments (public)
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)

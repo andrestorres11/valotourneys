@@ -2,6 +2,8 @@ import { UserButton } from '@clerk/nextjs'
 import { getCurrentUser } from '@/lib/auth'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 const NAV_ITEMS = [
   { href: '/dashboard',   label: 'Inicio',      icon: '🏠' },
   { href: '/profile',     label: 'Mi perfil',   icon: '👤' },

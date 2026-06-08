@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { RANK_LABELS } from '@/types'
 import type { Rank } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 type Props = {
   tournamentId: string
   userTeam: { id: string; name: string; isCapitan: boolean } | null

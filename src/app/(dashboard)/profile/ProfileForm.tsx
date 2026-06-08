@@ -4,6 +4,8 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { RANK_LABELS } from '@/types'
 
+export const dynamic = 'force-dynamic'
+
 type ProfileFormProps = {
   player: {
     id: string

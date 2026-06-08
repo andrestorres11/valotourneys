@@ -9,6 +9,8 @@ import type { Rank, GameMode, TournamentStatus, PhaseType, MatchStatus } from '@
 import { TournamentActions } from './TournamentActions'
 import { PaymentUpload } from '@/components/PaymentUpload'
 
+export const dynamic = 'force-dynamic'
+
 export default async function TournamentDetailPage({ params }: { params: { id: string } }) {
   const [tournament, user] = await Promise.all([
     prisma.tournament.findUnique({

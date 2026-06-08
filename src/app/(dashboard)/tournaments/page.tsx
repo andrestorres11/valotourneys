@@ -3,6 +3,8 @@ import { TOURNAMENT_STATUS_LABELS, GAME_MODE_LABELS, RANK_LABELS } from '@/types
 import Link from 'next/link'
 import type { TournamentStatus, GameMode, Rank } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata = { title: 'Torneos' }
 
 export default async function TournamentsPage() {

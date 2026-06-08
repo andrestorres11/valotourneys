@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { RANK_LABELS } from '@/types'
 import type { Rank } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 type Member = {
   id: string
   isCapitan: boolean

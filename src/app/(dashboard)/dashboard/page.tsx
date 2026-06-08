@@ -4,6 +4,8 @@ import { RANK_LABELS, TOURNAMENT_STATUS_LABELS } from '@/types'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 
+export const dynamic = 'force-dynamic'
+
 export default async function DashboardPage() {
   const user = await getCurrentUser()
   if (!user) redirect('/sign-in')

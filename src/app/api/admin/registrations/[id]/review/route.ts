@@ -1,8 +1,8 @@
-// PATCH /api/admin/registrations/[id]/review
-// Admin aprueba o rechaza un comprobante de pago
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+
+export const dynamic = 'force-dynamic'
 
 export async function PATCH(
   req: NextRequest,
@@ -49,7 +49,6 @@ export async function PATCH(
   } catch (err: unknown) {
     const error = err as Error
     if (error.message === 'Forbidden') return NextResponse.json({ error: 'Solo admins' }, { status: 403 })
-    console.error('[review payment]', error)
     return NextResponse.json({ error: 'Error interno' }, { status: 500 })
   }
 }

@@ -4,6 +4,8 @@ import { getFullPlayerStats, mapRank } from '@/lib/henrik'
 import { prisma } from '@/lib/prisma'
 import type { Rank } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
   try {
     const user = await requireAuth()

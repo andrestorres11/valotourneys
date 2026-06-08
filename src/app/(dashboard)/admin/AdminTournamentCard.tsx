@@ -6,6 +6,8 @@ import { TOURNAMENT_STATUS_LABELS, GAME_MODE_LABELS } from '@/types'
 import type { TournamentStatus, GameMode, PhaseType } from '@prisma/client'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 type Phase = { id: string; type: string; name: string; order: number; isCompleted: boolean }
 type Tournament = {
   id: string; name: string; status: string; gameMode: string

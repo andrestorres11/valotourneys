@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { isRankInRange, RANK_LABELS } from '@/types'
 import type { Rank } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 // POST /api/tournaments/[id]/register
 export async function POST(
   req: NextRequest,

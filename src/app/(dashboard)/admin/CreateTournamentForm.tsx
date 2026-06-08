@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
+export const dynamic = 'force-dynamic'
+
 const RANKS = [
   'UNRANKED','IRON_1','IRON_2','IRON_3',
   'BRONZE_1','BRONZE_2','BRONZE_3',

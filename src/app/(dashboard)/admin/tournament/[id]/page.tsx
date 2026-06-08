@@ -8,6 +8,8 @@ import { AdminPrizesManager } from '@/components/AdminPrizesManager'
 import { AdminPaymentConfig } from './AdminPaymentConfig'
 import Link from 'next/link'
 
+export const dynamic = 'force-dynamic'
+
 export default async function AdminTournamentDetailPage({ params }: { params: { id: string } }) {
   const user = await getCurrentUser()
   if (!user || user.role !== 'ADMIN') redirect('/dashboard')

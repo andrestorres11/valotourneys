@@ -6,6 +6,8 @@ import type { TournamentStatus, GameMode } from '@prisma/client'
 import { AdminTournamentCard } from './AdminTournamentCard'
 import { CreateTournamentForm } from './CreateTournamentForm'
 
+export const dynamic = 'force-dynamic'
+
 export const metadata = { title: 'Admin Panel' }
 
 export default async function AdminPage() {

@@ -4,6 +4,8 @@ import { requireAdmin } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import type { PrizeType } from '@prisma/client'
 
+export const dynamic = 'force-dynamic'
+
 // GET - list prizes of a tournament
 export async function GET(
   _req: NextRequest,
