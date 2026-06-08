@@ -2,6 +2,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { RANK_LABELS, TOURNAMENT_STATUS_LABELS } from '@/types'
 import Link from 'next/link'
+import { MyInvites } from '@/components/MyInvites'
 import { redirect } from 'next/navigation'
 
 export const dynamic = 'force-dynamic'
@@ -91,6 +92,9 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* INVITATIONS */}
+      <MyInvites />
 
       {/* FREE AGENTS */}
       <div className="valo-card p-5 flex items-center justify-between">
