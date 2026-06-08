@@ -154,7 +154,7 @@ model Player {
 model Team {
   id          String     @id @default(cuid())
   name        String     @unique
-  tag         String     @unique @db.VarChar(5)
+  tag         String     @db.VarChar(5)
   logoUrl     String?
   description String?
   status      TeamStatus @default(ACTIVE)
