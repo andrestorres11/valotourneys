@@ -49,28 +49,7 @@ export async function POST(
         }, { status: 400 })
       }
 
-      // Create a solo "team" entry (or reuse existing solo team)
-      let soloTeam = await prisma.team.findFirst({
-        where: { captainId: user.player.id, tag: 'SOLO' },
-      })
-      if (!soloTeam) {
-        soloTeam = await prisma.team.create({
-          data: {
-            name:      user.player.gameName ?? user.player.user?.username ?? `Player_${user.player.id.slice(-4)}`,
-            tag:       'SOLO',
-            captainId: user.player.id,
-            members: { create: { playerId: user.player.id, isCapitan: true } },
-          },
-        })
-      }
-
-      // Check not already registered
-      const existing = await prisma.tournamentRegistration.findUnique({
-        where: { tournamentId_teamId: { tournamentId: params.id, teamId: soloTeam.id } },
-      })
-      if (existing) return NextResponse.json({ error: 'Ya estás inscrito en este torneo' }, { status: 409 })
-
-      // Also check player's player-id not in any other registration for this tournament
+      // Check not already registered in this tournament
       const playerReg = await prisma.tournamentRegistration.findFirst({
         where: {
           tournamentId: params.id,
@@ -78,6 +57,17 @@ export async function POST(
         },
       })
       if (playerReg) return NextResponse.json({ error: 'Ya estás inscrito en este torneo' }, { status: 409 })
+
+      // Always create a fresh solo team for this tournament
+      const soloName = user.player.gameName ?? user.username ?? `Jugador_${user.player.id.slice(-4)}`
+      const soloTeam = await prisma.team.create({
+        data: {
+          name:      soloName,
+          tag:       'SOLO',
+          captainId: user.player.id,
+          members: { create: { playerId: user.player.id, isCapitan: true } },
+        },
+      })
 
       const registration = await prisma.tournamentRegistration.create({
         data: { tournamentId: params.id, teamId: soloTeam.id },
@@ -213,15 +203,19 @@ export async function DELETE(
       return NextResponse.json({ error: 'No se puede retirar en este momento' }, { status: 400 })
     }
 
+    // Check if temp team before deleting registration
+    const team = await prisma.team.findUnique({ where: { id: teamId } })
+    const isTemp = team && ['SOLO','DUO','TRIO'].includes(team.tag)
+
+    // Delete registration first (FK constraint)
     await prisma.tournamentRegistration.delete({
       where: { tournamentId_teamId: { tournamentId: params.id, teamId } },
     })
 
-    // If it was a solo/duo/trio temp team, disband it
-    const team = await prisma.team.findUnique({ where: { id: teamId } })
-    if (team && ['SOLO','DUO','TRIO'].includes(team.tag)) {
+    // Then clean up temp team
+    if (isTemp) {
       await prisma.teamMember.deleteMany({ where: { teamId } })
-      await prisma.team.delete({ where: { id: teamId } })
+      await prisma.team.delete({ where: { id: teamId } }).catch(() => {})
     }
 
     return NextResponse.json({ success: true })
