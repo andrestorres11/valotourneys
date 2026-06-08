@@ -43,25 +43,13 @@ export async function POST(
       })
       if (already) return NextResponse.json({ error: 'Ya estás inscrito en este torneo' }, { status: 409 })
 
-      // Find or clean up existing solo team for this specific tournament slot
-      const soloName = `solo_${user.player.id.slice(-8)}_${params.id.slice(-8)}`
+      // Always use a random unique name — no collisions possible
+      const randomSuffix = Math.random().toString(36).slice(2, 10)
+      const uniqueName   = `solo_${randomSuffix}_${Date.now()}`
 
-      // Delete any orphan solo team with this name (no active registration)
-      const orphan = await prisma.team.findUnique({ where: { name: soloName } })
-      if (orphan) {
-        // Check if it has an active registration anywhere
-        const hasReg = await prisma.tournamentRegistration.findFirst({ where: { teamId: orphan.id } })
-        if (!hasReg) {
-          // Safe to delete orphan
-          await prisma.teamMember.deleteMany({ where: { teamId: orphan.id } })
-          await prisma.team.delete({ where: { id: orphan.id } }).catch(() => {})
-        }
-      }
-
-      // Create fresh solo team
       const soloTeam = await prisma.team.create({
         data: {
-          name:      soloName,
+          name:      uniqueName,
           tag:       'SOLO',
           captainId: user.player.id,
           members:   { create: { playerId: user.player.id, isCapitan: true } },
